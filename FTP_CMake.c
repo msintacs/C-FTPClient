@@ -83,21 +83,296 @@ static int receiveResponse(FTPClient *obj) {
     return code;
 }
 
+// Active MODE Accept
+static int acceptDataConnection(FTPClient *obj) {
+    SOCKET_TYPE tempSocket = obj->dataSocket;
+    obj->dataSocket = accept(tempSocket, NULL, NULL);
+    CLOSE_SOCKET(tempSocket);
+
+    if (obj->dataSocket == INVALID_SOCKET) {
+        printf("Accept failed: %d\n", GET_SOCKET_ERROR);
+        return -1;
+    }
+    return 0;
+}
+
+// Active MODE
+static int connectPORT(FTPClient *obj) {
+    struct sockaddr_in localAddr, boundAddr;
+    SOCKLEN_TYPE length = sizeof(localAddr);
+    unsigned short port;
+    unsigned char *ip;
+
+    // 데이터 소켓 생성
+    obj->dataSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (obj->dataSocket == INVALID_SOCKET) {
+        printf("Data socket creation failed: %d\n", GET_SOCKET_ERROR);
+        return -1;
+    }
+
+    // 컨트롤 소켓의 로컬 주소 정보 가져오기
+    if (getsockname(obj->controlSocket, (struct sockaddr *)&localAddr, &length) == SOCKET_ERROR) {
+        printf("getsockname failed: %d\n", GET_SOCKET_ERROR);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    // 데이터 소켓 바인딩 준비
+    memset(&boundAddr, 0, sizeof(boundAddr));
+    boundAddr.sin_family = AF_INET;
+    boundAddr.sin_addr = localAddr.sin_addr;
+    boundAddr.sin_port = 0;
+
+    // 바인딩
+    if (bind(obj->dataSocket, (struct sockaddr *)&boundAddr, sizeof(boundAddr)) == SOCKET_ERROR) {
+        printf("Bind failed: %d\n", GET_SOCKET_ERROR);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    // 할당된 포트 확인
+    length = sizeof(boundAddr);
+    if (getsockname(obj->dataSocket, (struct sockaddr *)&boundAddr, &length) == SOCKET_ERROR) {
+        printf("Get bound port failed: %d\n", GET_SOCKET_ERROR);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    port = ntohs(boundAddr.sin_port);
+
+    // PORT 명령 생성
+    ip = (unsigned char *)&localAddr.sin_addr;
+    snprintf(obj->command, BUFFER_SIZE, "PORT %d,%d,%d,%d,%d,%d\r\n", ip[0], ip[1], ip[2], ip[3], port >> 8, port & 0xFF);
+
+    // PORT 명령 전송
+    if (send(obj->controlSocket, obj->command, strlen(obj->command), 0) == SOCKET_ERROR) {
+        printf("Failed to send PORT command: %d\n", GET_SOCKET_ERROR);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    printf("PORT command: %s", obj->command);
+
+    // 서버 응답 대기
+    int code = receiveResponse(obj);
+    if (code != 200) {
+        printf("PORT command failed: %d\n", GET_SOCKET_ERROR);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    if (listen(obj->dataSocket, 1) == SOCKET_ERROR) {
+        printf("Listen failed: %d", GET_SOCKET_ERROR);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    obj->isConneted = 1;
+
+    return 0;
+}
+
+// Passive MODE
+static int connectPASV(FTPClient *obj) {
+    int a, b, c, d, p1, p2;
+
+    if (sendCommand(obj, "PASV", NULL) < 0) {
+        return -1;
+    }
+
+    receiveResponse(obj);
+    char *start = strrchr(obj->buffer, '(');
+    int parsed = sscanf(start + 1, "%d,%d,%d,%d,%d,%d", &a, &b, &c, &d, &p1, &p2);
+
+    if (parsed != 6) {
+        printf("paring failed\n");
+        return -1;
+    }
+
+    sprintf(obj->dataIP, "%d.%d.%d.%d", a, b, c, d);
+    obj->dataPort = p1 * 256 + p2;
+    printf("Parsed IP: %s, Port: %d\n", obj->dataIP, obj->dataPort);
+
+    obj->dataSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    struct sockaddr_in dataAddr;
+    memset(&dataAddr, 0, sizeof(dataAddr));
+    dataAddr.sin_family = AF_INET;
+    dataAddr.sin_port = htons(obj->dataPort);
+    inet_pton(AF_INET, obj->dataIP, &dataAddr.sin_addr);
+
+    if (connect(obj->dataSocket, (struct sockaddr *)&dataAddr, sizeof(dataAddr)) == SOCKET_ERROR) {
+        printf("Data socket connection failed: %d\n", GET_SOCKET_ERROR);
+        return -1;
+    }
+
+    obj->isConneted = 1;
+
+    return 0;
+}
+
+static int setupDataConnection(FTPClient *obj) {
+    if (obj->mode == MODE_PASSIVE) {
+        return connectPASV(obj);
+    } else {
+        return connectPORT(obj);
+    }
+}
+
 static CommandType getCommandType(const char *cmd) {
-    if (strcmp(cmd, "quit") == 0) return CMD_QUIT;
+    if (strcmp(cmd, "cd") == 0) return CMD_CD;
     if (strcmp(cmd, "ls") == 0) return CMD_LIST;
     if (strcmp(cmd, "pwd") == 0) return CMD_PWD;
-    if (strcmp(cmd, "cd") == 0) return CMD_CD;
     if (strcmp(cmd, "get") == 0) return CMD_GET;
     if (strcmp(cmd, "put") == 0) return CMD_PUT;
     if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) return CMD_HELP;
+    if (strcmp(cmd, "quit") == 0 || strcmp(cmd, "exit") == 0) return CMD_QUIT;
     return CMD_UNKNOWN;
+}
+
+static int Upload(FTPClient *obj, const char *localPath) {
+    int code;
+
+    obj->file = fopen(localPath, "rb");
+    if (obj->file == NULL) {
+        printf("Cannot open file: %s\n", localPath);
+        return -1;
+    }
+
+    if (setupDataConnection(obj) < 0) {
+        return -1;
+    }
+
+    if (sendCommand(obj, "STOR", localPath) < 0) {
+        return -1;
+    }
+
+    code = receiveResponse(obj);
+
+    if (obj->mode == MODE_ACTIVE) {
+        if (acceptDataConnection(obj) < 0) {
+            return -1;
+        }
+    }
+
+    if (code != 150) {
+        printf("Failed to start STOR command: %s [errno: %d]\n", strerror(errno), errno);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    while ((obj->bytesRead = fread(obj->buffer, 1, BUFFER_SIZE, obj->file)) > 0) {
+        if (send(obj->dataSocket, obj->buffer, obj->bytesRead, 0) < 0) {
+            printf("Failed to send file data\n");
+            fclose(obj->file);
+            CLOSE_SOCKET(obj->dataSocket);
+            return -1;
+        }
+        printf("%d bytes uploaded.\n", obj->bytesRead);
+    }
+
+    fclose(obj->file);
+    CLOSE_SOCKET(obj->dataSocket);
+
+    code = receiveResponse(obj);
+
+    if (code != 226) {
+        printf("Failed to complete STOR command\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int Download(FTPClient *obj, const char *remotePath, const char *localPath) {
+    int code;
+    int response;
+
+    if (setupDataConnection(obj) < 0) {
+        return -1;
+    }
+
+    if (sendCommand(obj, "RETR", remotePath) < 0) {
+        return -1;
+    }
+
+    code = receiveResponse(obj);
+
+    if (obj->mode == MODE_ACTIVE) {
+        if (acceptDataConnection(obj) < 0) {
+            return -1;
+        }
+    }
+
+    if (code != 150) {
+        printf("Failed to start RETR command\n");
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    obj->file = fopen(localPath, "wb");
+    if (obj->file == NULL) {
+        printf("Failed to create local file: %s (errno: %d)\n", strerror(errno), errno);
+        CLOSE_SOCKET(obj->dataSocket);
+        return -1;
+    }
+
+    printf("downloading ...\n");
+    while ((response = recv(obj->dataSocket, obj->buffer, BUFFER_SIZE, 0)) > 0) {
+        fwrite(obj->buffer, 1, response, obj->file);
+        printf("%d bytes done.\n", response);
+    }
+
+    fclose(obj->file);
+    CLOSE_SOCKET(obj->dataSocket);
+
+    code = receiveResponse(obj);
+    if (code != 226) {
+        printf("Failed to complete RETR command\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int List(FTPClient *obj) {
+    int response;
+
+    if (setupDataConnection(obj) < 0) {
+        return -1;
+    }
+
+    if (sendCommand(obj, "LIST", NULL) < 0) {
+        return -1;
+    }
+
+    receiveResponse(obj);
+
+    if (obj->mode == MODE_ACTIVE) {
+        if (acceptDataConnection(obj) < 0) {
+            return -1;
+        }
+    }
+
+    memset(obj->buffer, 0, BUFFER_SIZE);
+
+    while ((response = recv(obj->dataSocket, obj->buffer, BUFFER_SIZE - 1, 0)) > 0) {
+        obj->buffer[response] = '\0';
+        printf("%s", obj->buffer);
+        memset(obj->buffer, 0, BUFFER_SIZE);
+    }
+
+    CLOSE_SOCKET(obj->dataSocket);
+    obj->dataSocket = INVALID_SOCKET;
+
+    receiveResponse(obj);
+
+    return 0;
 }
 
 static int handleFTPCommands(FTPClient *obj) {
     char input[BUFFER_SIZE];
-    char command[COMMAND_BUFFER_SIZE];
-    char argument[COMMAND_BUFFER_SIZE] = {0};
+    char *args[10] = {0};
+    int argc = 0;
 
     printf("%s mode.\n", obj->mode == MODE_PASSIVE ? "Passive" : "Active");
 
@@ -110,17 +385,25 @@ static int handleFTPCommands(FTPClient *obj) {
 
         input[strcspn(input, "\n")] = 0;
 
-        if (sscanf(input, "%s %[^\n]", command, argument) < 1) {
-            continue;
+        // 문자열 공백을 기준으로 분리
+        char *token = strtok(input, " ");
+        argc = 0;
+
+        while (token != NULL && argc < 10) {
+            args[argc++] = token;
+            token = strtok(NULL, " ");
         }
 
-        CommandType cmd = getCommandType(command);
+        if (argc == 0) continue;
+
+        CommandType cmd = getCommandType(args[0]);
 
         switch (cmd) {
             case CMD_QUIT: {
                 return 0;
             }
             case CMD_LIST: {
+                List(obj);
                 break;
             }
             case CMD_PWD: {
@@ -129,12 +412,38 @@ static int handleFTPCommands(FTPClient *obj) {
                 break;
             }
             case CMD_CD: {
-                if (strlen(argument) > 0) {
-                    sendCommand(obj, "CWD", argument);
+                if (argc > 1) {
+                    sendCommand(obj, "CWD", args[1]);
                     receiveResponse(obj);
                 } else {
                     printf("Usage: cd <directory>\n");
+                    continue;
                 }
+                break;
+            }
+            case CMD_GET: {
+                switch (argc) {
+                    case 2: {  // get remotefile
+                        Download(obj, args[1], args[1]);
+                        break;
+                    }
+                    case 3: {  // get remotefile localfile
+                        Download(obj, args[1], args[2]);
+                        break;
+                    }
+                    default: {
+                        printf("Usage: get <remoteFile> [localPath]\n");
+                        continue;
+                    }
+                }
+                break;
+            }
+            case CMD_PUT: {
+                if (argc < 2) {
+                    printf("Usage: put <localPath>\n");
+                    continue;
+                }
+                Upload(obj, args[1]);
                 break;
             }
             case CMD_HELP: {
@@ -144,7 +453,8 @@ static int handleFTPCommands(FTPClient *obj) {
                 printf("\t%s\t-\t%s\n", "cd", "cd <directory> change directory");
                 printf("\t%s\t-\t%s\n", "get", "get <filepath> get file");
                 printf("\t%s\t-\t%s\n", "put", "put <filepath> put file");
-                printf("\t%s\t-\t%s\n", "quit", "exit");
+                printf("\t%s\t-\t%s\n", "quit", "Terminate");
+                printf("\t%s\t-\t%s\n", "exit", "Terminate");
                 break;
             }
             case CMD_UNKNOWN: {
