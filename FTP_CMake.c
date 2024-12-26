@@ -16,6 +16,7 @@
 #include <string.h>
 
 #define BUFFER_SIZE 1024
+#define COMMAND_BUFFER_SIZE 64
 #define MAX_IP_LENGTH 16
 #define DEFAULT_FTP_PORT 21
 
@@ -35,10 +36,11 @@
 #define SOCKLEN_TYPE socklen_t
 #endif
 
-typedef enum { MODE_PASSIVE, MODE_ACTIVE } FtpMode;
+typedef enum { MODE_PASSIVE, MODE_ACTIVE } FTPMode;
+typedef enum { CMD_UNKNOWN = -1, CMD_QUIT = 0, CMD_LIST, CMD_PWD, CMD_CD, CMD_GET, CMD_PUT, CMD_HELP } CommandType;
 
 typedef struct FTPClient {
-    FtpMode mode;
+    FTPMode mode;
     SOCKET_TYPE controlSocket;
     SOCKET_TYPE dataSocket;
     FILE *file;
@@ -79,6 +81,80 @@ static int receiveResponse(FTPClient *obj) {
     sscanf(obj->buffer, "%d", &code);
 
     return code;
+}
+
+static CommandType getCommandType(const char *cmd) {
+    if (strcmp(cmd, "quit") == 0) return CMD_QUIT;
+    if (strcmp(cmd, "ls") == 0) return CMD_LIST;
+    if (strcmp(cmd, "pwd") == 0) return CMD_PWD;
+    if (strcmp(cmd, "cd") == 0) return CMD_CD;
+    if (strcmp(cmd, "get") == 0) return CMD_GET;
+    if (strcmp(cmd, "put") == 0) return CMD_PUT;
+    if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) return CMD_HELP;
+    return CMD_UNKNOWN;
+}
+
+static int handleFTPCommands(FTPClient *obj) {
+    char input[BUFFER_SIZE];
+    char command[COMMAND_BUFFER_SIZE];
+    char argument[COMMAND_BUFFER_SIZE] = {0};
+
+    printf("%s mode.\n", obj->mode == MODE_PASSIVE ? "Passive" : "Active");
+
+    while (1) {
+        printf("ftp> ");
+
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            continue;
+        }
+
+        input[strcspn(input, "\n")] = 0;
+
+        if (sscanf(input, "%s %[^\n]", command, argument) < 1) {
+            continue;
+        }
+
+        CommandType cmd = getCommandType(command);
+
+        switch (cmd) {
+            case CMD_QUIT: {
+                return 0;
+            }
+            case CMD_LIST: {
+                break;
+            }
+            case CMD_PWD: {
+                sendCommand(obj, "PWD", NULL);
+                receiveResponse(obj);
+                break;
+            }
+            case CMD_CD: {
+                if (strlen(argument) > 0) {
+                    sendCommand(obj, "CWD", argument);
+                    receiveResponse(obj);
+                } else {
+                    printf("Usage: cd <directory>\n");
+                }
+                break;
+            }
+            case CMD_HELP: {
+                printf("Available commands:\n");
+                printf("\t%s\t-\t%s\n", "ls", "list files");
+                printf("\t%s\t-\t%s\n", "pwd", "print working directory");
+                printf("\t%s\t-\t%s\n", "cd", "cd <directory> change directory");
+                printf("\t%s\t-\t%s\n", "get", "get <filepath> get file");
+                printf("\t%s\t-\t%s\n", "put", "put <filepath> put file");
+                printf("\t%s\t-\t%s\n", "quit", "exit");
+                break;
+            }
+            case CMD_UNKNOWN: {
+                printf("Unknown command. Type 'help' for commands.\n");
+                break;
+            }
+        }
+    }
+
+    return 0;
 }
 
 static int serverLogin(FTPClient *obj) {
@@ -182,7 +258,6 @@ static int winSocketInit() {
 
 static void work() {
     FTPClient obj = {0};
-    int code;
 
     // Window OS Socket Init
     if (winSocketInit() < 0) {
@@ -206,24 +281,34 @@ static void work() {
     serverLogin(&obj);
 
     int select;
+    char temp;
     while (1) {
         printf("1. Passive / 2.Active / 0.exit\n");
         printf("Select FTP Mode: ");
         scanf("%d", &select);
 
+        while ((temp = getchar()) != '\n' && temp != EOF);
+
         switch (select) {
             case 1: {
-                printf("Passive\n");
+                obj.mode = MODE_PASSIVE;
+                handleFTPCommands(&obj);
+                break;
             }
             case 2: {
-                printf("Active\n");
+                obj.mode = MODE_ACTIVE;
+                handleFTPCommands(&obj);
+                break;
             }
-            case 3: {
-                printf("bye bye.\n");
+            case 0: {
+                printf("Goodbye.\n");
+                CLOSE_SOCKET(obj.controlSocket);
+                CLEAN_UP;
                 return;
             }
             default: {
                 printf("Invalid Select Num.\n");
+                break;
             }
         }
     }
