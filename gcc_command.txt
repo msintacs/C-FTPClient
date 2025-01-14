@@ -1,0 +1,61 @@
+[ gcc ]
+
+FTPClient 디렉토리 ROOT 기준
+
+-- main.c (ftp_client.h / socket.h / socket_utils.h)
+gcc -c ./src/main.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o main.o
+
+-- cmd_control.c
+gcc -c ./src/commands/cmd_control.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o cmd_control.o
+
+-- download.c
+gcc -c ./src/commands/download.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o download.o
+
+-- list.c
+gcc -c ./src/commands/list.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o list.o
+
+-- upload.c
+gcc -c ./src/commands/upload.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o upload.o
+
+-- connect.c 
+gcc -c ./src/connection/connect.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o connect.o
+
+-- socket_utils.c (socket.h / socket_utils.h)
+gcc -c ./src/utils/socket_utils.c \
+    -I./include/commands \
+    -I./include/connection \
+    -I./include/defines \
+    -I./include/utils \
+    -o socket_utils.o
+
+gcc -o main.exe main.o cmd_control.o download.o list.o upload.o connect.o socket_utils.o -lws2_32

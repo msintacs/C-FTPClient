@@ -1,0 +1,40 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "C/C++: gcc.exe build active file",
+            "command": "C:\\mingw64\\bin\\gcc.exe",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "-I${workspaceFolder}/include",
+                "-I${workspaceFolder}/include/commands",
+                "-I${workspaceFolder}/include/connection",
+                "-I${workspaceFolder}/include/defines",
+                "-I${workspaceFolder}/include/utils",
+
+                "${workspaceFolder}/src/main.c",
+                "${workspaceFolder}/src/commands/cmd_control.c",
+                "${workspaceFolder}/src/commands/list.c",
+                "${workspaceFolder}/src/commands/download.c",
+                "${workspaceFolder}/src/commands/upload.c",
+                "${workspaceFolder}/src/connection/connect.c",
+                "${workspaceFolder}/src/utils/socket_utils.c",                
+                "-o",
+                "${workspaceFolder}/main.exe",
+                "-lws2_32"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+  }
