@@ -64,6 +64,14 @@ int connection(FTPClient *spFtpClient)
     struct sockaddr_in serverAddr;
     int nCode;
 
+    spFtpClient->controlSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (spFtpClient->controlSocket == INVALID_SOCKET)
+    {
+        printf("Socket create failed: %d\n", GET_SOCKET_ERROR);
+        CLEAN_UP;
+        return -1;
+    }
+
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(DEFAULT_FTP_PORT);
@@ -157,6 +165,7 @@ int connectFTP(FTPClient *spFtpClient)
         {
             printf("Login Fail, Please Re try.\n");
             nFailCount++;
+            CLOSE_SOCKET(spFtpClient->controlSocket);
             continue;
         }
 
@@ -164,6 +173,7 @@ int connectFTP(FTPClient *spFtpClient)
     }
 }
 
+// FTP Passive 연결
 int connectPASV(FTPClient *spFtpClient)
 {
     struct sockaddr_in dataAddr;
@@ -219,6 +229,7 @@ int connectPASV(FTPClient *spFtpClient)
     return 0;
 }
 
+// FTP Active
 int connectPORT(FTPClient *spFtpClient)
 {
     struct sockaddr_in localAddr, boundAddr;

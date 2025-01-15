@@ -39,14 +39,6 @@ int main()
         return -1;
     }
 
-    spFtpClient.controlSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (spFtpClient.controlSocket == INVALID_SOCKET)
-    {
-        printf("Socket create failed: %d\n", GET_SOCKET_ERROR);
-        CLEAN_UP;
-        return -1;
-    }
-
     nCode = connectFTP(&spFtpClient);
     if (nCode < 0)
     {
