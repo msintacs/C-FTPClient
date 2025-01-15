@@ -224,7 +224,7 @@ int connectPORT(FTPClient *spFtpClient)
     struct sockaddr_in localAddr, boundAddr;
     SOCKLEN_TYPE length;
     REUSE_FLAG reuse;
-    unsigned short nPort = 30000;
+    unsigned short nPort = REUSE_PORT;
     unsigned char *sIp;
     char sLocalInfo[COMMAND_BUFFER_SIZE];
     int nCode;
@@ -259,7 +259,7 @@ int connectPORT(FTPClient *spFtpClient)
     memset(&boundAddr, 0, sizeof(boundAddr));
     boundAddr.sin_family = AF_INET;
     boundAddr.sin_addr = localAddr.sin_addr;
-    boundAddr.sin_port = 30000;
+    boundAddr.sin_port = REUSE_PORT;
 
     // 바인딩
     nCode = bind(spFtpClient->dataSocket, (struct sockaddr *)&boundAddr, sizeof(boundAddr));

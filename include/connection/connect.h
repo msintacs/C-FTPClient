@@ -11,6 +11,11 @@
 #include "ftp_client.h"
 
 /**
+ * @brief PORT (ACTIVE) 모드 사용시 고정 포트 할당
+ */
+#define REUSE_PORT 30000
+
+/**
  * @brief 연결대상서버의 IP 주소 입력받아 구조체에 저장
  *
  * @param spFtpClient 클라이언트, 연결소켓정보가 포함된 구조체 (초기 입력 상태)
