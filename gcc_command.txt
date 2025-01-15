@@ -2,7 +2,7 @@
 
 FTPClient 디렉토리 ROOT 기준
 
--- main.c (ftp_client.h / socket.h / socket_utils.h)
+-- main.c
 gcc -c ./src/main.c \
     -I./include/commands \
     -I./include/connection \
@@ -50,7 +50,7 @@ gcc -c ./src/connection/connect.c \
     -I./include/utils \
     -o connect.o
 
--- socket_utils.c (socket.h / socket_utils.h)
+-- socket_utils.c
 gcc -c ./src/utils/socket_utils.c \
     -I./include/commands \
     -I./include/connection \
