@@ -37,4 +37,6 @@ src/
 │   └── socket_utils.h
 │
 main.c
+Makefile
+compile.sh
 ```
